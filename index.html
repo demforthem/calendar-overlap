@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar Overlap Analyzer</title>
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      background: #f8f9fa;
+      color: #202124;
+      min-height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────── */
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header h1 { font-size: 18px; font-weight: 500; color: #202124; }
+    .header .subtitle { font-size: 13px; color: #9aa0a6; margin-left: 8px; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 28px 24px; }
+
+    /* ── Setup card ─────────────────────────────────────── */
+    .setup-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 36px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    .setup-card h2 { font-size: 16px; font-weight: 500; color: #5f6368; margin-bottom: 28px; }
+
+    .form-group { margin-bottom: 22px; }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .form-group input[type=text],
+    .form-group textarea,
+    .form-group select {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #dadce0;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #202124;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      font-family: inherit;
+    }
+    .form-group input[type=text]:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
+      border-color: #4285f4;
+      box-shadow: 0 0 0 3px rgba(66,133,244,0.15);
+    }
+    .form-group textarea { resize: vertical; min-height: 100px; }
+
+    .hint {
+      font-size: 12px;
+      color: #4285f4;
+      margin-top: 7px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .hint:hover { text-decoration: underline; }
+
+    .time-row { display: flex; align-items: center; gap: 12px; }
+    .time-row input[type=time] {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1.5px solid #dadce0;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #202124;
+      outline: none;
+      font-family: monospace;
+    }
+    .time-row input[type=time]:focus {
+      border-color: #4285f4;
+      box-shadow: 0 0 0 3px rgba(66,133,244,0.15);
+    }
+    .time-sep { color: #9aa0a6; font-size: 18px; }
+
+    .days-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+    .day-btn {
+      padding: 7px 16px;
+      border: 1.5px solid #dadce0;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      background: #fff;
+      color: #5f6368;
+      transition: all 0.15s;
+    }
+    .day-btn.active {
+      background: #e8f0fe;
+      border-color: #4285f4;
+      color: #1a73e8;
+    }
+    .day-btn:hover:not(.active) { background: #f8f9fa; }
+
+    .analyze-btn {
+      width: 100%;
+      padding: 13px;
+      background: #4285f4;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
+      margin-top: 8px;
+      letter-spacing: 0.2px;
+    }
+    .analyze-btn:hover { background: #3367d6; box-shadow: 0 2px 8px rgba(66,133,244,0.4); }
+    .analyze-btn:disabled { background: #ccc; cursor: not-allowed; box-shadow: none; }
+
+    .error-msg {
+      background: #fce8e6;
+      border: 1px solid #f28b82;
+      border-radius: 6px;
+      padding: 12px 16px;
+      color: #c5221f;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    /* ── Loading ─────────────────────────────────────────── */
+    .loading-wrap { text-align: center; padding: 80px 24px; }
+    .spinner {
+      width: 52px;
+      height: 52px;
+      border: 4px solid #e8f0fe;
+      border-top-color: #4285f4;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+      margin: 0 auto 24px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-status { font-size: 16px; color: #202124; margin-bottom: 6px; }
+    .loading-detail { font-size: 13px; color: #9aa0a6; margin-bottom: 20px; min-height: 20px; }
+    .progress-bar {
+      width: 100%;
+      max-width: 400px;
+      height: 6px;
+      background: #e8f0fe;
+      border-radius: 3px;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4285f4, #34a853);
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+
+    /* ── Results ─────────────────────────────────────────── */
+    .summary-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .summary-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 20px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .summary-card .s-label { font-size: 12px; color: #9aa0a6; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .summary-card .s-value { font-size: 26px; font-weight: 700; color: #1a73e8; }
+
+    .results-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 28px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .results-card h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #202124;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Heatmap ─────────────────────────────────────────── */
+    .heatmap-scroll { overflow-x: auto; padding-bottom: 8px; }
+    .heatmap-grid {
+      display: grid;
+      gap: 3px;
+      width: fit-content;
+    }
+    .hm-header {
+      font-size: 11px;
+      font-weight: 700;
+      color: #5f6368;
+      text-align: center;
+      padding: 4px 0 8px;
+      letter-spacing: 0.5px;
+    }
+    .hm-time {
+      font-size: 11px;
+      color: #9aa0a6;
+      text-align: right;
+      padding-right: 10px;
+      line-height: 22px;
+      font-family: monospace;
+    }
+    .hm-cell {
+      width: 46px;
+      height: 22px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
+      position: relative;
+    }
+    .hm-cell:hover {
+      transform: scale(1.2);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 5;
+    }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 18px;
+      font-size: 12px;
+      color: #9aa0a6;
+    }
+    .legend-bar {
+      width: 140px;
+      height: 10px;
+      border-radius: 5px;
+      background: linear-gradient(to right, #f1f3f4, #4285f4, #ea4335);
+    }
+
+    /* ── Table ─────────────────────────────────────────── */
+    .slots-table { width: 100%; border-collapse: collapse; }
+    .slots-table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #9aa0a6;
+      border-bottom: 2px solid #f1f3f4;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .slots-table td {
+      padding: 11px 14px;
+      font-size: 14px;
+      border-bottom: 1px solid #f1f3f4;
+      color: #202124;
+    }
+    .slots-table tr:last-child td { border-bottom: none; }
+    .slots-table tr:hover td { background: #f8f9fa; }
+
+    .prob-pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .prob-bar-bg {
+      height: 8px;
+      background: #f1f3f4;
+      border-radius: 4px;
+      width: 120px;
+      overflow: hidden;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+    }
+
+    /* ── Tooltip ─────────────────────────────────────────── */
+    .tooltip {
+      position: fixed;
+      background: rgba(32,33,36,0.93);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+      line-height: 1.7;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    /* ── Modal ─────────────────────────────────────────── */
+    .modal-bg {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-bg.show { display: flex; }
+    .modal-box {
+      background: #fff;
+      border-radius: 12px;
+      padding: 36px;
+      max-width: 580px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      position: relative;
+    }
+    .modal-box h2 { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: #5f6368;
+      line-height: 1;
+    }
+    .modal-close:hover { color: #202124; }
+    .modal-box ol { padding-left: 22px; line-height: 2.1; font-size: 14px; color: #3c4043; }
+    .modal-box li { margin-bottom: 2px; }
+    .modal-box code {
+      background: #f1f3f4;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+    .info-box {
+      background: #e8f0fe;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #1a73e8;
+      margin-top: 20px;
+      line-height: 1.6;
+    }
+    .warn-box {
+      background: #fef7e0;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #b06000;
+      margin-top: 12px;
+      line-height: 1.6;
+    }
+
+    .back-btn {
+      padding: 10px 22px;
+      background: #fff;
+      border: 1.5px solid #dadce0;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #5f6368;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .back-btn:hover { background: #f8f9fa; }
+
+    .no-data {
+      text-align: center;
+      color: #9aa0a6;
+      padding: 32px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 640px) {
+      .summary-row { grid-template-columns: 1fr; }
+      .setup-card { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────── -->
+<div class="header">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="#4285f4">
+    <path d="M19 4H18V2H16V4H8V2H6V4H5C3.9 4 3 4.9 3 6V20C3 21.1 3.9 22 5 22H19C20.1 22 21 21.1 21 20V6C21 4.9 20.1 4 19 4ZM19 20H5V9H19V20ZM9 11H7V13H9V11ZM13 11H11V13H13V11ZM17 11H15V13H17V11ZM9 15H7V17H9V15ZM13 15H11V17H13V15ZM17 15H15V17H17V15Z"/>
+  </svg>
+  <h1>Calendar Overlap Analyzer</h1>
+  <span class="subtitle">Анализ пересечений встреч</span>
+</div>
+
+<div class="container">
+
+  <!-- ── Setup Screen ──────────────────────────────────── -->
+  <div id="setup-screen">
+    <div class="setup-card">
+      <h2>Настройки анализа</h2>
+
+      <div class="error-msg" id="error-msg"></div>
+
+      <div class="form-group">
+        <label>Google OAuth Client ID</label>
+        <input type="text" id="client-id" placeholder="123456789-abc...apps.googleusercontent.com" value="810580442161-gbhc0s82pg3b7o3pc66br3nr6jb8pu26.apps.googleusercontent.com">
+        <div class="hint" onclick="showModal()">📋 Как получить Client ID — пошаговая инструкция</div>
+      </div>
+
+      <div class="form-group">
+        <label>Email-адреса участников (по одному на строку)</label>
+        <textarea id="emails" placeholder="alice@company.com&#10;bob@company.com&#10;carol@company.com">vova@playrix.com
+igor@playrix.com</textarea>
+      </div>
+
+      <div class="form-group">
+        <label>Период анализа</label>
+        <select id="weeks">
+          <option value="1" selected>Последняя 1 недель</option>
+          <option value="4">Последние 4 недели</option>
+          <option value="8">Последние 8 недель</option>
+          <option value="12">Последние 12 недель</option>
+          <option value="16">Последние 16 недель</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Рабочие часы</label>
+        <div class="time-row">
+          <input type="time" id="time-from" value="09:00">
+          <span class="time-sep">—</span>
+          <input type="time" id="time-to" value="19:00">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Дни недели</label>
+        <div class="days-grid" id="days-grid">
+          <button class="day-btn active" data-day="1">Пн</button>
+          <button class="day-btn active" data-day="2">Вт</button>
+          <button class="day-btn active" data-day="3">Ср</button>
+          <button class="day-btn active" data-day="4">Чт</button>
+          <button class="day-btn active" data-day="5">Пт</button>
+          <button class="day-btn" data-day="6">Сб</button>
+          <button class="day-btn" data-day="0">Вс</button>
+        </div>
+      </div>
+
+      <button class="analyze-btn" id="analyze-btn" onclick="startAnalysis()">
+        🔍 Авторизоваться и проанализировать
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Loading Screen ───────────────────────────────── -->
+  <div id="loading-screen" style="display:none">
+    <div class="loading-wrap">
+      <div class="spinner"></div>
+      <div class="loading-status" id="loading-status">Подготовка...</div>
+      <div class="loading-detail" id="loading-detail"></div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Results Screen ───────────────────────────────── -->
+  <div id="results-screen" style="display:none">
+
+    <div class="summary-row">
+      <div class="summary-card">
+        <div class="s-label">Пиковый день</div>
+        <div class="s-value" id="peak-day">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="s-label">Пиковое время</div>
+        <div class="s-value" id="peak-time">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="s-label">Макс. вероятность</div>
+        <div class="s-value" id="max-prob">—</div>
+      </div>
+    </div>
+
+    <div class="results-card">
+      <h2>🗓 Тепловая карта пересечений</h2>
+      <div class="heatmap-scroll">
+        <div id="heatmap-container"></div>
+      </div>
+      <div class="legend">
+        <span>0%</span>
+        <div class="legend-bar"></div>
+        <span>100%</span>
+        <span style="margin-left:12px;color:#9aa0a6">вероятность пересечения</span>
+      </div>
+    </div>
+
+    <div class="results-card">
+      <h2>📊 Топ-10 временных слотов по вероятности</h2>
+      <table class="slots-table">
+        <thead>
+          <tr>
+            <th>День</th>
+            <th>Время</th>
+            <th>Вероятность</th>
+            <th>Из недель</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="slots-body"></tbody>
+      </table>
+    </div>
+
+    <button class="back-btn" onclick="showSetup()">← Изменить настройки</button>
+  </div>
+
+</div><!-- /container -->
+
+<!-- ── Tooltip ─────────────────────────────────────────── -->
+<div class="tooltip" id="tooltip"></div>
+
+<!-- ── Instructions Modal ─────────────────────────────── -->
+<div class="modal-bg" id="modal-bg" onclick="bgClick(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="hideModal()">×</button>
+    <h2>Как получить Google OAuth Client ID</h2>
+    <ol>
+      <li>Откройте <a href="https://console.cloud.google.com/" target="_blank" style="color:#1a73e8">Google Cloud Console</a></li>
+      <li>Создайте новый проект или выберите существующий</li>
+      <li>Перейдите в <b>APIs & Services → Library</b></li>
+      <li>Найдите и включите <b>Google Calendar API</b></li>
+      <li>Перейдите в <b>APIs & Services → OAuth consent screen</b>, настройте экран (можно выбрать External)</li>
+      <li>Перейдите в <b>APIs & Services → Credentials</b></li>
+      <li>Нажмите <b>Create Credentials → OAuth 2.0 Client ID</b></li>
+      <li>Выберите тип <b>Web application</b></li>
+      <li>В разделе <b>Authorized JavaScript origins</b> добавьте адрес, с которого открыто приложение, например:<br>
+        <code>http://localhost:8080</code> (для локального запуска)<br>
+        <code>https://your-domain.com</code> (при публичном размещении)
+      </li>
+      <li>Нажмите <b>Create</b> и скопируйте <b>Client ID</b></li>
+    </ol>
+
+    <div class="info-box">
+      💡 <b>Для локального запуска:</b> Сохраните этот HTML-файл и запустите через терминал:<br>
+      <code>python3 -m http.server 8080</code><br>
+      Затем откройте <code>http://localhost:8080/calendar-overlap-analyzer.html</code>
+    </div>
+    <div class="warn-box">
+      ⚠️ Инструмент использует Google Calendar FreeBusy API — он видит, <b>заняты ли</b> люди в конкретное время, но <b>не видит</b> названия встреч. Данные доступны только для людей из вашей Google Workspace организации или тех, кто поделился статусом занятости с вами.
+    </div>
+  </div>
+</div>
+
+<!-- ── Script ──────────────────────────────────────────── -->
+<script>
+// =============================================
+// State
+// =============================================
+let tokenClient = null;
+let accessToken = null;
+let analysisConfig = {};
+let activeDays = new Set([1, 2, 3, 4, 5]);
+
+// =============================================
+// Day buttons
+// =============================================
+document.querySelectorAll('.day-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const day = parseInt(btn.dataset.day);
+    if (activeDays.has(day)) { activeDays.delete(day); btn.classList.remove('active'); }
+    else { activeDays.add(day); btn.classList.add('active'); }
+  });
+});
+
+// =============================================
+// UI Helpers
+// =============================================
+function showSetup() {
+  document.getElementById('setup-screen').style.display = '';
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('results-screen').style.display = 'none';
+}
+function showLoading() {
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('loading-screen').style.display = '';
+  document.getElementById('results-screen').style.display = 'none';
+}
+function showResults() {
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('results-screen').style.display = '';
+}
+function setError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+function setProgress(pct, status, detail) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+  if (status !== undefined) document.getElementById('loading-status').textContent = status;
+  if (detail !== undefined) document.getElementById('loading-detail').textContent = detail;
+}
+function showModal() { document.getElementById('modal-bg').classList.add('show'); }
+function hideModal() { document.getElementById('modal-bg').classList.remove('show'); }
+function bgClick(e) { if (e.target === document.getElementById('modal-bg')) hideModal(); }
+
+// =============================================
+// Start Analysis
+// =============================================
+function startAnalysis() {
+  setError('');
+
+  const clientId = document.getElementById('client-id').value.trim();
+  if (!clientId) { setError('Пожалуйста, введите Google OAuth Client ID'); return; }
+
+  const emailsRaw = document.getElementById('emails').value;
+  const emails = emailsRaw.split('\n').map(e => e.trim()).filter(e => e.includes('@'));
+  if (emails.length < 2) { setError('Введите минимум 2 email-адреса (по одному на строку)'); return; }
+  if (activeDays.size === 0) { setError('Выберите хоть хотя бы один день недели'); return; }
+
+  const timeFrom = document.getElementById('time-from').value;
+  const timeTo = document.getElementById('time-to').value;
+  const [fh, fm] = timeFrom.split(':').map(Number);
+  const [th, tm] = timeTo.split(':').map(Number);
+  if (fh * 60 + fm >= th * 60 + tm) { setError('Времь начала должно быть раньше времени окончания'); return; }
+
+  analysisConfig = {
+    emails,
+    weeks: parseInt(document.getElementById('weeks').value),
+    timeFrom, timeTo,
+    fromMinutes: fh * 60 + fm,
+    toMinutes: th * 60 + tm,
+    days: [...activeDays]
+  };
+
+  showLoading();
+  setProgress(5, 'Инициализация Google авторизации...', '');
+
+  try {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: 'https://www.googleapis.com/auth/calendar.readonly',
+      callback: handleToken,
+      error_callback: (err) => {
+        showSetup();
+        setError('Ошибка авторизации: ' + (err.message || err.type || JSON.stringify(err)));
+      }
+    });
+    tokenClient.requestAccessToken({ prompt: '' });
+  } catch (err) {
+    showSetup();
+    setError('Не удалось инициализировать авторизацию. Убедитесь, что Google GIS загружен: ' + err.message);
+  }
+}
+
+async function handleToken(response) {
+  if (response.error) {
+    showSetup();
+    setError('Ошибка OAuth: ' + response.error + (response.error_description ? ' — ' + response.error_description : ''));
+    return;
+  }
+  accessToken = response.access_token;
+  setProgress(15, 'Авторизация прошла успешно. Загружаю данные...', '');
+  try {
+    await runAnalysis(analysisConfig);
+  } catch (err) {
+    showSetup();
+    setError('Ошибка анализа: ' + err.message);
+  }
+}
+
+// =============================================
+// Core Analysis
+// =============================================
+async function runAnalysis(config) {
+  const { emails, weeks, fromMinutes, toMinutes, days } = config;
+
+  const totalSlots = Math.floor((toMinutes - fromMinutes) / 30);
+  if (totalSlots <= 0) throw new Error('Некорректный временной диапазон');
+
+  // slotMatrix[displayDay 0=Mon..6=Sun][slotIdx] = {overlap, total}
+  const slotMatrix = {};
+  for (let d = 0; d < 7; d++) {
+    slotMatrix[d] = {};
+    for (let s = 0; s < totalSlots; s++) slotMatrix[d][s] = { overlap: 0, total: 0 };
+  }
+
+  // Build week list (past N weeks)
+  const now = new Date();
+  const weekRanges = [];
+  for (let w = 0; w < weeks; w++) {
+    const ref = new Date(now);
+    ref.setDate(now.getDate() - (w + 1) * 7);
+    const jsDow = ref.getDay();
+    const monday = new Date(ref);
+    monday.setDate(ref.getDate() - (jsDow === 0 ? 6 : jsDow - 1));
+    monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 7);
+    weekRanges.push({ start: monday, end: sunday });
+  }
+
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  // Fetch each week
+  for (let i = 0; i < weekRanges.length; i++) {
+    const { start, end } = weekRanges[i];
+    setProgress(
+      15 + Math.round((i / weekRanges.length) * 65),
+      `Загрузка данныхдя: неделя ${i + 1} из ${weekRanges.length}`,
+      `${fmtDate(start)} — ${fmtDate(new Date(end.getTime() - 86400000))}`
+    );
+
+    let weekData;
+    try {
+      weekData = await fetchFreeBusy(emails, start, end, tz);
+    } catch (err) {
+      console.warn(`Ошибка при загрузке недели ${i + 1}:`, err);
+      continue;
+    }
+
+    // Process days
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const dayDate = new Date(start);
+      dayDate.setDate(start.getDate() + dayOffset);
+
+      const jsDow = dayDate.getDay(); // 0=Sun
+      if (!days.includes(jsDow)) continue;
+
+      // Convert to 0=Mon display index
+      const displayDay = jsDow === 0 ? 6 : jsDow - 1;
+
+      for (let s = 0; s < totalSlots; s++) {
+        const startMins = fromMinutes + s * 30;
+        const endMins = startMins + 30;
+
+        const slotStart = new Date(dayDate);
+        slotStart.setHours(Math.floor(startMins / 60), startMins % 60, 0, 0);
+        const slotEnd = new Date(dayDate);
+        slotEnd.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+
+        slotMatrix[displayDay][s].total++;
+
+        const allBusy = emails.every(email => {
+          const busy = weekData.calendars?.[email]?.busy || [];
+          return busy.some(b => new Date(b.start) < slotEnd && new Date(b.end) > slotStart);
+        });
+
+        if (allBusy) slotMatrix[displayDay][s].overlap++;
+      }
+    }
+
+    if (i < weekRanges.length - 1) await sleep(80);
+  }
+
+  setProgress(85, 'Строю визуализацию...', '');
+  renderResults(slotMatrix, totalSlots, fromMinutes, days);
+  setProgress(100, 'Готово!', '');
+  await sleep(400);
+  showResults();
+}
+
+async function fetchFreeBusy(emails, timeMin, timeMax, tz) {
+  const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      timeZone: tz,
+      items: emails.map(id => ({ id }))
+    })
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt.substring(0, 200)}`);
+  }
+  return res.json();
+}
+
+// =============================================
+// Rendering
+// =============================================
+const DAY_SHORT  = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const DAY_FULL   = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+// jsDow to displayDay mapping
+function jsToDisplay(d) { return d === 0 ? 6 : d - 1; }
+
+function renderResults(slotMatrix, totalSlots, fromMinutes, selectedJsDays) {
+  const selectedDisplay = selectedJsDays.map(jsToDisplay);
+
+  let maxProb = 0, peakDay = -1, peakSlot = -1;
+  const allSlots = [];
+
+  for (let d = 0; d < 7; d++) {
+    if (!selectedDisplay.includes(d)) continue;
+    for (let s = 0; s < totalSlots; s++) {
+      const cell = slotMatrix[d][s];
+      const prob = cell.total > 0 ? cell.overlap / cell.total : 0;
+      if (prob > maxProb) { maxProb = prob; peakDay = d; peakSlot = s; }
+      if (prob > 0) {
+        const m = fromMinutes + s * 30;
+        allSlots.push({ d, s, prob, cell, startMin: m });
+      }
+    }
+  }
+
+  // Summary cards
+  if (peakDay >= 0) {
+    const m = fromMinutes + peakSlot * 30;
+    document.getElementById('peak-day').textContent = DAY_SHORT[peakDay];
+    document.getElementById('peak-time').textContent = fmtTime(m);
+    document.getElementById('max-prob').textContent = Math.round(maxProb * 100) + '%';
+  } else {
+    document.getElementById('peak-day').textContent = '—';
+    document.getElementById('peak-time').textContent = '—';
+    document.getElementById('max-prob').textContent = '0%';
+  }
+
+  // Heatmap
+  renderHeatmap(slotMatrix, totalSlots, fromMinutes, selectedDisplay);
+
+  // Top slots table
+  allSlots.sort((a, b) => b.prob - a.prob);
+  const tbody = document.getElementById('slots-body');
+  tbody.innerHTML = '';
+  const top = allSlots.slice(0, 10);
+
+  if (top.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="no-data">Пересечений не обнаружено за выбранный период</td></tr>';
+    return;
+  }
+
+  top.forEach(({ d, s, prob, cell, startMin }) => {
+    const color = probColor(prob);
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${DAY_FULL[d]}</td>
+      <td>${fmtTime(startMin)} — ${fmtTime(startMin + 30)}</td>
+      <td><span class="prob-pill" style="background:${color}20;color:${color}">${Math.round(prob * 100)}%</span></td>
+      <td style="color:#9aa0a6;font-size:13px">${cell.overlap} / ${cell.total}</td>
+      <td>
+        <div class="prob-bar-bg">
+          <div class="prob-bar-fill" style="width:${Math.round(prob * 100)}%;background:${color}"></div>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(row);
+  });
+}
+
+function renderHeatmap(slotMatrix, totalSlots, fromMinutes, selectedDisplay) {
+  const container = document.getElementById('heatmap-container');
+  container.innerHTML = '';
+
+  const sortedDays = [0,1,2,3,4,5,6].filter(d => selectedDisplay.includes(d));
+  if (sortedDays.length === 0) { container.innerHTML = '<div class="no-data">Нет данных</div>'; return; }
+
+  const grid = document.createElement('div');
+  grid.className = 'heatmap-grid';
+  grid.style.gridTemplateColumns = '52px ' + sortedDays.map(() => '48px').join(' ');
+
+  // Header row
+  const emptyTh = document.createElement('div');
+  grid.appendChild(emptyTh);
+  sortedDays.forEach(d => {
+    const h = document.createElement('div');
+    h.className = 'hm-header';
+    h.textContent = DAY_SHORT[d];
+    grid.appendChild(h);
+  });
+
+  // Slot rows
+  for (let s = 0; s < totalSlots; s++) {
+    const slotMin = fromMinutes + s * 30;
+
+    // Time label (only on the hour)
+    const tl = document.createElement('div');
+    tl.className = 'hm-time';
+    tl.textContent = slotMin % 60 === 0 ? fmtTime(slotMin) : '';
+    grid.appendChild(tl);
+
+    sortedDays.forEach(d => {
+      const cell = slotMatrix[d][s];
+      const prob = cell.total > 0 ? cell.overlap / cell.total : 0;
+
+      const div = document.createElement('div');
+      div.className = 'hm-cell';
+      div.style.background = probColor(prob);
+
+      const endMin = slotMin + 30;
+      const tip = `${DAY_FULL[d]}\n${fmtTime(slotMin)} — ${fmtTime(endMin)}\nВероятность: ${Math.round(prob*100)}%\nПересечений: ${cell.overlap} из ${cell.total} нед.`;
+      div.addEventListener('mouseenter', e => showTip(e, tip));
+      div.addEventListener('mousemove', moveTip);
+      div.addEventListener('mouseleave', hideTip);
+
+      grid.appendChild(div);
+    });
+  }
+
+  container.appendChild(grid);
+}
+
+// =============================================
+// Color
+// =============================================
+function probColor(p) {
+  if (p === 0) return '#f1f3f4';
+  // white → blue → red
+  const stops = [
+    [232, 240, 254],  // #e8f0fe at 0
+    [26, 115, 232],   // #1a73e8 at 0.5
+    [234, 67, 53],    // #ea4335 at 1
+  ];
+  const t = p < 0.5 ? p * 2 : (p - 0.5) * 2;
+  const idx = p < 0.5 ? 0 : 1;
+  const [r1, g1, b1] = stops[idx];
+  const [r2, g2, b2] = stops[idx + 1];
+  const r = Math.round(r1 + (rw - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+// =============================================
+// Tooltip
+// =============================================
+function showTip(e, text) {
+  const tt = document.getElementById('tooltip');
+  tt.innerHTML = text.replace(/\n/g, '<br>');
+  tt.style.display = 'block';
+  moveTip(e);
+}
+function moveTip(e) {
+  const tt = document.getElementById('tooltip');
+  let lx = e.clientX + 12;
+  let ly = e.clientY + 12;
+  if (lx + tt.offsetWidth > window.innerWidth - 10) lx = e.clientX - tt.offsetWidth - 12;
+  tt.style.left = lx + 'px';
+  tt.style.top = ly + 'px';
+}
+function hideTip() { document.getElementById('tooltip').style.display = 'none'; }
+
+// =============================================
+// Utils
+// =============================================
+function fmtTime(mins) {
+  return String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
+}
+function fmtDate(d) {
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+</script>
+</body>
+</html>
